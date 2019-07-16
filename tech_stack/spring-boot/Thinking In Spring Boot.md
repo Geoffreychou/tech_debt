@@ -1958,7 +1958,7 @@ public class SpringBootWebContainer {
 
 Spring Boot 自动装配，其核心注解为 `@EnableAutoConfiguration`。下面，我们就来仔细分析一下它。
 
-`@EnableAutoConfiguration` 源码如下。根据 6.2 节分析的Spring `@Enable`  驱动，我们可以知道，在 Spring Boot 启动过程中，如果是配置类，会实例化其 `@Import` 注解中配置的类。所以，`AutoConfigurationImportSelector` 会被实例化，并执行其 `selectImports()` 方法。
+`@EnableAutoConfiguration` 源码如下。
 
 ```java
 package org.springframework.boot.autoconfigure;
@@ -2009,48 +2009,131 @@ public @interface EnableAutoConfiguration {
 
 
 
-`AutoConfigurationImportSelector` selectImports() 方法如下：
+根据 6.2 节分析的Spring `@Enable`  驱动，我们可以知道，在 Spring Boot 启动过程中，如果是配置类，会实例化其 `@Import` 注解中配置的类。所以，`AutoConfigurationImportSelector` 会被实例化，因为 `AutoConfigurationImportSelector`  实现了`DeferredImportSelector`， 所以会执行它的 `this.deferredImportSelectorHandler.handle(configClass, (DeferredImportSelector) selector)` 方法。因为 `deferredImportSelectors` 会初始化且不为 null，所以这一步将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中，然后放到 deferredImportSelectors 的集合中。
 
 ```java
-@Override
-public String[] selectImports(AnnotationMetadata annotationMetadata) {
-    if (!isEnabled(annotationMetadata)) {
-        return NO_IMPORTS;
+if (selector instanceof DeferredImportSelector) {
+    this.deferredImportSelectorHandler.handle(
+        configClass, (DeferredImportSelector) selector);
+}
+
+private class DeferredImportSelectorHandler {
+
+    @Nullable
+    private List<DeferredImportSelectorHolder> deferredImportSelectors = new ArrayList<>();
+
+    public void handle(ConfigurationClass configClass, DeferredImportSelector importSelector) {
+        DeferredImportSelectorHolder holder = new DeferredImportSelectorHolder(
+            configClass, importSelector);
+        if (this.deferredImportSelectors == null) {
+            DeferredImportSelectorGroupingHandler handler = new DeferredImportSelectorGroupingHandler();
+            handler.register(holder);
+            handler.processGroupImports();
+        }
+        else {
+            this.deferredImportSelectors.add(holder);
+        }
     }
-    AutoConfigurationMetadata autoConfigurationMetadata = AutoConfigurationMetadataLoader
-        .loadMetadata(this.beanClassLoader);
-    AutoConfigurationEntry autoConfigurationEntry = getAutoConfigurationEntry(
-        autoConfigurationMetadata, annotationMetadata);
-    return StringUtils.toStringArray(autoConfigurationEntry.getConfigurations());
+
+    public void process() {
+        List<DeferredImportSelectorHolder> deferredImports = this.deferredImportSelectors;
+        this.deferredImportSelectors = null;
+        try {
+            if (deferredImports != null) {
+                DeferredImportSelectorGroupingHandler handler = new DeferredImportSelectorGroupingHandler();
+                deferredImports.sort(DEFERRED_IMPORT_COMPARATOR);
+                deferredImports.forEach(handler::register);
+                handler.processGroupImports();
+            }
+        }
+        finally {
+            this.deferredImportSelectors = new ArrayList<>();
+        }
+    }
+
 }
 ```
 
-可以看到，该方法主要分3步执行。
 
-1. 判断是否需要导入
 
-   如果该类是 `AutoConfigurationImportSelector` 则需要判断如果我们配置 "spring.boot.enableautoconfiguration=false"，则不执行自动化装配，直接返回一个空数组
+然后，在解析完所有的配置类后，执行 `this.deferredImportSelectorHandler.process()` 方法，统一处理实现 `DeferredImportSelector` 的类。从上面的 `process()`  方法可以看到。主要分3步进行处理。
 
-   ```java
-   protected boolean isEnabled(AnnotationMetadata metadata) {
-       if (getClass() == AutoConfigurationImportSelector.class) {
-           return getEnvironment().getProperty(
-               EnableAutoConfiguration.ENABLED_OVERRIDE_PROPERTY, Boolean.class,
-               true);
-       }
-       return true;
-   }
-   ```
+- 对所有的 `DeferredImportSelectorHolder` 进行排序
 
-   
+  最终执行的排序方法如下：
 
-2. 加载 `AutoConfigurationMetadata`
+  ```java
+  private int doCompare(@Nullable Object o1, @Nullable Object o2, @Nullable OrderSourceProvider sourceProvider) {
+      boolean p1 = (o1 instanceof PriorityOrdered);
+      boolean p2 = (o2 instanceof PriorityOrdered);
+      if (p1 && !p2) {
+          return -1;
+      }
+      else if (p2 && !p1) {
+          return 1;
+      }
+  
+      int i1 = getOrder(o1, sourceProvider);
+      int i2 = getOrder(o2, sourceProvider);
+      return Integer.compare(i1, i2);
+  }
+  ```
 
-   读取 "META-INF/spring-autoconfigure-metadata.properties" 路径下的文件并加载到 Properties 中。
+  可以看到，若其中一个实现了 `PriorityOrdered` 接口，另一个没有实现，则实现了 `PriorityOrdered`  接口的优先级大；
 
-   创建 `PropertiesAutoConfigurationMetadata` 对象。
+  若都实现了 `PriorityOrdered` 接口，则根据其 getOrder() 方法，getOrder 得到的值越大，优先级越低。
 
-3. 得到所有的配置类
+- 遍历 deferredImports，并执行 `org.springframework.context.annotation.ConfigurationClassParser.DeferredImportSelectorGroupingHandler#register` 方法。
+
+  ```java
+  public void register(DeferredImportSelectorHolder deferredImport) {
+      Class<? extends Group> group = deferredImport.getImportSelector()
+          .getImportGroup();
+      DeferredImportSelectorGrouping grouping = this.groupings.computeIfAbsent(
+          (group != null ? group : deferredImport),
+          key -> new DeferredImportSelectorGrouping(createGroup(group)));
+      grouping.add(deferredImport);
+      this.configurationClasses.put(deferredImport.getConfigurationClass().getMetadata(),
+                                    deferredImport.getConfigurationClass());
+  }
+  ```
+
+  首先获取其 ImportGroup 的类对象，并将其实例化，使用 `DeferredImportSelectorGrouping`进行包装，然后放到 groupings 中。
+
+- 遍历第二步的 groupings。
+
+  ```java
+  public void processGroupImports() {
+      for (DeferredImportSelectorGrouping grouping : this.groupings.values()) {
+          grouping.getImports().forEach(entry -> {
+              ConfigurationClass configurationClass = this.configurationClasses.get(
+                  entry.getMetadata());
+              try {
+                  processImports(configurationClass, asSourceClass(configurationClass),
+                                 asSourceClasses(entry.getImportClassName()), false);
+              }
+              catch (BeanDefinitionStoreException ex) {
+                  throw ex;
+              }
+              catch (Throwable ex) {
+                  throw new BeanDefinitionStoreException(
+                      "Failed to process import candidates for configuration class [" +
+                      configurationClass.getMetadata().getClassName() + "]", ex);
+              }
+          });
+      }
+  }
+  ```
+
+  - 首先执行 `grouping.getImports()` 方法。
+
+    加载 META-INF/spring-autoconfigure-metadata.properties 的文件，得到所有的properties。 加载 properties 中定义的配置类，根据 `@EnableAutoConfiguration` 配置的 exclude & excludeName 去排除指定的配置。
+
+    执行 `group.selectImports()` 方法。再次进行排除，并根据优先级进行排序。
+
+  - 执行 processImports(configurationClass, asSourceClass(configurationClass), asSourceClasses(entry.getImportClassName()), false) 方法。即对每个配置类执行 processImport 方法，及导入配置类需要 import 的类。
+
+通过上面分析可以知道，`@EnableAutoConfiguration`  的 `@Import(AutoConfigurationImportSelector.class)` 其主要目的，就是通过 `AutoConfigurationImportSelector` 将 Spring Boot 项目下定义的配置类全部加载进来。
 
 
 
