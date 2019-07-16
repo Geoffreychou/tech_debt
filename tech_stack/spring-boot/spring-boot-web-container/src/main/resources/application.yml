@@ -1,0 +1,14 @@
+management:
+  endpoint:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
+
+spring:
+  profiles:
+    active: dev
+logging:
+  level:
+    root: info
