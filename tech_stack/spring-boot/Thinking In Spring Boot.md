@@ -2009,7 +2009,52 @@ public @interface EnableAutoConfiguration {
 
 
 
-根据 6.2 节分析的Spring `@Enable`  驱动，我们可以知道，在 Spring Boot 启动过程中，如果是配置类，会实例化其 `@Import` 注解中配置的类。所以，`AutoConfigurationImportSelector` 会被实例化，因为 `AutoConfigurationImportSelector`  实现了`DeferredImportSelector`， 所以会执行它的 `this.deferredImportSelectorHandler.handle(configClass, (DeferredImportSelector) selector)` 方法。因为 `deferredImportSelectors` 会初始化且不为 null，所以这一步将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中，然后放到 deferredImportSelectors 的集合中。
+根据 6.2 节分析的Spring `@Enable`  驱动，我们可以知道，在 Spring Boot 启动过程中，如果是配置类，会按照如下的方式处理 `@Import` 注解中配置的类。`@EnableAutoConfiguration` 注解中包含2个 `@Import` 。分别为 `@Import(AutoConfigurationImportSelector.class)` 和 `@Import(AutoConfigurationPackages.Registrar.class)`
+
+```java
+if (candidate.isAssignable(ImportSelector.class)) {
+    // Candidate class is an ImportSelector -> delegate to it to determine imports
+    Class<?> candidateClass = candidate.loadClass();
+    ImportSelector selector = BeanUtils.instantiateClass(candidateClass, ImportSelector.class);
+    ParserStrategyUtils.invokeAwareMethods(
+        selector, this.environment, this.resourceLoader, this.registry);
+    if (selector instanceof DeferredImportSelector) {
+        this.deferredImportSelectorHandler.handle(
+            configClass, (DeferredImportSelector) selector);
+    }
+    else {
+        String[] importClassNames = selector.selectImports(currentSourceClass.getMetadata());
+        Collection<SourceClass> importSourceClasses = asSourceClasses(importClassNames);
+        processImports(configClass, currentSourceClass, importSourceClasses, false);
+    }
+}
+else if (candidate.isAssignable(ImportBeanDefinitionRegistrar.class)) {
+    // Candidate class is an ImportBeanDefinitionRegistrar ->
+    // delegate to it to register additional bean definitions
+    Class<?> candidateClass = candidate.loadClass();
+    ImportBeanDefinitionRegistrar registrar =
+        BeanUtils.instantiateClass(candidateClass, ImportBeanDefinitionRegistrar.class);
+    ParserStrategyUtils.invokeAwareMethods(
+        registrar, this.environment, this.resourceLoader, this.registry);
+    configClass.addImportBeanDefinitionRegistrar(registrar, currentSourceClass.getMetadata());
+}
+else {
+    // Candidate class not an ImportSelector or ImportBeanDefinitionRegistrar ->
+    // process it as an @Configuration class
+    this.importStack.registerImport(
+        currentSourceClass.getMetadata(), candidate.getMetadata().getClassName());
+    processConfigurationClass(candidate.asConfigClass(configClass));
+}
+}
+```
+
+
+
+#### 7.1.1 AutoConfigurationImportSelector
+
+首先分析 `@Import(AutoConfigurationImportSelector.class)` ，因为 `AutoConfigurationImportSelector`  继承了 `DeferredImportSelector` ，而 `DeferredImportSelector` 实现了 `ImportSelector`,  所以，会走到第一个 if 的分支。
+
+首先，`AutoConfigurationImportSelector` 会被实例化，然后会执行 `this.deferredImportSelectorHandler.handle(configClass, (DeferredImportSelector) selector)` 方法。在执行 handle 方法时，第一步会将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中。第二步，判断 `deferredImportSelectors` 是否为空，因为 `deferredImportSelectors` 在实例化时，会被赋值一个 ArrayList，所以不为空，会将 holder 放到 deferredImportSelectors 的集合中。
 
 ```java
 if (selector instanceof DeferredImportSelector) {
@@ -2056,7 +2101,60 @@ private class DeferredImportSelectorHandler {
 
 
 
-然后，在解析完所有的配置类后，执行 `this.deferredImportSelectorHandler.process()` 方法，统一处理实现 `DeferredImportSelector` 的类。从上面的 `process()`  方法可以看到。主要分3步进行处理。
+然后，在解析完所有的配置类后，执行 `this.deferredImportSelectorHandler.process()` 方法，统一处理实现 `DeferredImportSelector` 的类。
+
+```java
+public void parse(Set<BeanDefinitionHolder> configCandidates) {
+    for (BeanDefinitionHolder holder : configCandidates) {
+        BeanDefinition bd = holder.getBeanDefinition();
+        try {
+            // 解析配置类
+            if (bd instanceof AnnotatedBeanDefinition) {
+                parse(((AnnotatedBeanDefinition) bd).getMetadata(), holder.getBeanName());
+            }
+            else if (bd instanceof AbstractBeanDefinition && ((AbstractBeanDefinition) bd).hasBeanClass()) {
+                parse(((AbstractBeanDefinition) bd).getBeanClass(), holder.getBeanName());
+            }
+            else {
+                parse(bd.getBeanClassName(), holder.getBeanName());
+            }
+        }
+        catch (BeanDefinitionStoreException ex) {
+            throw ex;
+        }
+        catch (Throwable ex) {
+            throw new BeanDefinitionStoreException(
+                "Failed to parse configuration class [" + bd.getBeanClassName() + "]", ex);
+        }
+    }
+	// 处理 DeferredImportSelector
+    this.deferredImportSelectorHandler.process();
+}
+```
+
+
+
+`process()`  方法如下。可以看到，主要分3步进行处理。
+
+```java
+public void process() {
+    List<DeferredImportSelectorHolder> deferredImports = this.deferredImportSelectors;
+    this.deferredImportSelectors = null;
+    try {
+        if (deferredImports != null) {
+            DeferredImportSelectorGroupingHandler handler = new DeferredImportSelectorGroupingHandler();
+            deferredImports.sort(DEFERRED_IMPORT_COMPARATOR);
+            deferredImports.forEach(handler::register);
+            handler.processGroupImports();
+        }
+    }
+    finally {
+        this.deferredImportSelectors = new ArrayList<>();
+    }
+}
+```
+
+
 
 - 对所有的 `DeferredImportSelectorHolder` 进行排序
 
@@ -2127,13 +2225,173 @@ private class DeferredImportSelectorHandler {
 
   - 首先执行 `grouping.getImports()` 方法。
 
-    加载 META-INF/spring-autoconfigure-metadata.properties 的文件，得到所有的properties。 加载 properties 中定义的配置类，根据 `@EnableAutoConfiguration` 配置的 exclude & excludeName 去排除指定的配置。
+    加载 META-INF/spring-autoconfigure-metadata.properties 的文件，得到所有的properties。 加载 properties 中定义的配置类，根据 `@EnableAutoConfiguration` 配置的 exclude & excludeName 去排除指定的配置。如果我们应用中需要将某些自动化的配置排除，则可以在此进行配置。
 
     执行 `group.selectImports()` 方法。再次进行排除，并根据优先级进行排序。
 
   - 执行 processImports(configurationClass, asSourceClass(configurationClass), asSourceClasses(entry.getImportClassName()), false) 方法。即对每个配置类执行 processImport 方法，及导入配置类需要 import 的类。
 
-通过上面分析可以知道，`@EnableAutoConfiguration`  的 `@Import(AutoConfigurationImportSelector.class)` 其主要目的，就是通过 `AutoConfigurationImportSelector` 将 Spring Boot 项目下定义的配置类全部加载进来。
+通过上面分析可以知道，`@EnableAutoConfiguration`  的 `@Import(AutoConfigurationImportSelector.class)` 其主要目的，就是通过 `AutoConfigurationImportSelector` 将 Spring Boot 项目下定义的配置类全部加载进来，并处理配置类上的Import 的类。
+
+
+
+#### 7.1.2 AutoConfigurationPackages.Registrar
+
+`Registrar` 实现了 `ImportBeanDefinitionRegistrar`，会走到第二个 if 分支。
+
+```java
+if (candidate.isAssignable(ImportBeanDefinitionRegistrar.class)) {
+    // Candidate class is an ImportBeanDefinitionRegistrar ->
+    // delegate to it to register additional bean definitions
+    Class<?> candidateClass = candidate.loadClass();
+    ImportBeanDefinitionRegistrar registrar =
+        BeanUtils.instantiateClass(candidateClass, ImportBeanDefinitionRegistrar.class);
+    ParserStrategyUtils.invokeAwareMethods(
+        registrar, this.environment, this.resourceLoader, this.registry);
+    configClass.addImportBeanDefinitionRegistrar(registrar, currentSourceClass.getMetadata());
+}
+```
+
+可以看到，其主要是分4步进行处理。
+
+1. 加载类。
+2. 实例化 `Registrar` 。
+3. 若 `Registrar`  实现了`BeanClassLoaderAware`  | `BeanFactoryAware` | `EnvironmentAware` | `ResourceLoaderAware` 则执行其实现方法。
+4. 将实例化的 `Registrar` 对象存入 `importBeanDefinitionRegistrars` 中。
+
+最终，我们会将 `Registrar` 对象存入 configClass 的 importBeanDefinitionRegistrars 中。这个在后面加载BeanDefinition时，会做相应的处理。
+
+我们接着看下面这段代码，`parser.parse(candidates)` 就是我们解析配置类的过程，在解析完配置类后，会执行 `this.reader.loadBeanDefinitions(configClasses)` 方法。
+
+```java
+public void processConfigBeanDefinitions(BeanDefinitionRegistry registry) {
+    ...
+    do {
+        parser.parse(candidates);
+        parser.validate();
+
+        Set<ConfigurationClass> configClasses = new LinkedHashSet<>(parser.getConfigurationClasses());
+        configClasses.removeAll(alreadyParsed);
+
+        // Read the model and create bean definitions based on its content
+        if (this.reader == null) {
+            this.reader = new ConfigurationClassBeanDefinitionReader(
+                registry, this.sourceExtractor, this.resourceLoader, this.environment,
+                this.importBeanNameGenerator, parser.getImportRegistry());
+        }
+        this.reader.loadBeanDefinitions(configClasses);
+        ...
+    }
+    while (!candidates.isEmpty());
+    ...
+}
+```
+
+
+
+可以看到该方法会遍历我们解析好的配置类，然后执行 `loadBeanDefinitionsForConfigurationClass` 方法。
+
+````java
+public void loadBeanDefinitions(Set<ConfigurationClass> configurationModel) {
+    TrackedConditionEvaluator trackedConditionEvaluator = new TrackedConditionEvaluator();
+    for (ConfigurationClass configClass : configurationModel) {
+        loadBeanDefinitionsForConfigurationClass(configClass, trackedConditionEvaluator);
+    }
+}
+````
+
+
+
+`loadBeanDefinitionsForConfigurationClass`  是用来加载配置类。主要分5步执行。
+
+```java
+private void loadBeanDefinitionsForConfigurationClass(
+    ConfigurationClass configClass, TrackedConditionEvaluator trackedConditionEvaluator) {
+
+    if (trackedConditionEvaluator.shouldSkip(configClass)) {
+        String beanName = configClass.getBeanName();
+        if (StringUtils.hasLength(beanName) && this.registry.containsBeanDefinition(beanName)) {
+            this.registry.removeBeanDefinition(beanName);
+        }
+        this.importRegistry.removeImportingClass(configClass.getMetadata().getClassName());
+        return;
+    }
+
+    if (configClass.isImported()) {
+        registerBeanDefinitionForImportedConfigurationClass(configClass);
+    }
+    for (BeanMethod beanMethod : configClass.getBeanMethods()) {
+        loadBeanDefinitionsForBeanMethod(beanMethod);
+    }
+
+    loadBeanDefinitionsFromImportedResources(configClass.getImportedResources());
+    loadBeanDefinitionsFromRegistrars(configClass.getImportBeanDefinitionRegistrars());
+}
+```
+
+1. 判断该配置类是否需要跳过，即不加载
+
+2. 判断该配置类是否已经在其他配置类中导入过，若已经导入过，则通过 `registerBeanDefinitionForImportedConfigurationClass(configClass)` 进行注册。
+
+3. 遍历配置类中的 beanMethod， 即使用了 @Bean 注解的方法，并注册对应的类。
+
+4. 若配置类配置了 `@ImportResource` 注解，则加载对应的资源。
+
+5. 处理 `importBeanDefinitionRegistrars` ，`importBeanDefinitionRegistrars`  即我们在解析配置类时，保存的 `Registrar` 。
+
+   ```java
+   private void loadBeanDefinitionsFromRegistrars(Map<ImportBeanDefinitionRegistrar, AnnotationMetadata> registrars) {
+       registrars.forEach((registrar, metadata) ->
+                          registrar.registerBeanDefinitions(metadata, this.registry));
+   }
+   ```
+
+   可以看到，其执行了 `Registrar` 的  `registerBeanDefinitions` 方法。
+
+   ```java
+   static class Registrar implements ImportBeanDefinitionRegistrar, DeterminableImports {
+   
+       @Override
+       public void registerBeanDefinitions(AnnotationMetadata metadata,
+                                           BeanDefinitionRegistry registry) {
+           register(registry, new PackageImport(metadata).getPackageName());
+       }
+   
+       @Override
+       public Set<Object> determineImports(AnnotationMetadata metadata) {
+           return Collections.singleton(new PackageImport(metadata));
+       }
+   
+   }
+   ```
+
+   register 方法作用是注册 `AutoConfigurationPackages`，如果已经注册，则将 packageNames 放到构造参数中，若未注册，则构造对应的 BeanDefinition，并注册。
+
+   ```java
+   public static void register(BeanDefinitionRegistry registry, String... packageNames) {
+       if (registry.containsBeanDefinition(BEAN)) {
+           BeanDefinition beanDefinition = registry.getBeanDefinition(BEAN);
+           ConstructorArgumentValues constructorArguments = beanDefinition
+               .getConstructorArgumentValues();
+           constructorArguments.addIndexedArgumentValue(0,
+                                                        addBasePackages(constructorArguments, packageNames));
+       }
+       else {
+           GenericBeanDefinition beanDefinition = new GenericBeanDefinition();
+           beanDefinition.setBeanClass(BasePackages.class);
+           beanDefinition.getConstructorArgumentValues().addIndexedArgumentValue(0,
+                                                                                 packageNames);
+           beanDefinition.setRole(BeanDefinition.ROLE_INFRASTRUCTURE);
+           registry.registerBeanDefinition(BEAN, beanDefinition);
+       }
+   }
+   ```
+
+
+
+总之，`AutoConfigurationPackages.Registrar` 其主要目的还是为了注册 `AutoConfigurationPackages` ，该类的主要作用就是用来保存我们定义的 importResource，以供后面使用。
+
+> Class for storing auto-configuration packages for reference later (e.g. by JPA entity scanner).
 
 
 
