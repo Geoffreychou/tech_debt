@@ -8,8 +8,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ImportResource;
 
-@EnableAutoConfiguration
-//@SpringBootApplication
+//@EnableAutoConfiguration
+@SpringBootApplication
 public class SpringBootFirstApp {
     public static void main( String[] args ) {
         ConfigurableApplicationContext run = SpringApplication.run(SpringBootFirstApp.class, args);

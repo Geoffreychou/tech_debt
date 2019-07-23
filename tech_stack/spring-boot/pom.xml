@@ -16,6 +16,7 @@
 		<module>spring-boot-web-container</module>
 		<module>spring-boot-first-app</module>
         <module>spring-boot-web-servlet</module>
+        <module>spring-boot-auto-configuration</module>
     </modules>
 	<name>spring-boot-study-parent</name>
 	<packaging>pom</packaging>

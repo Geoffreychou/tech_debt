@@ -2045,16 +2045,30 @@ else {
         currentSourceClass.getMetadata(), candidate.getMetadata().getClassName());
     processConfigurationClass(candidate.asConfigClass(configClass));
 }
-}
 ```
 
 
 
 #### 7.1.1 AutoConfigurationImportSelector
 
-首先分析 `@Import(AutoConfigurationImportSelector.class)` ，因为 `AutoConfigurationImportSelector`  继承了 `DeferredImportSelector` ，而 `DeferredImportSelector` 实现了 `ImportSelector`,  所以，会走到第一个 if 的分支。
+首先分析 `@Import(AutoConfigurationImportSelector.class)` 。
 
-首先，`AutoConfigurationImportSelector` 会被实例化，然后会执行 `this.deferredImportSelectorHandler.handle(configClass, (DeferredImportSelector) selector)` 方法。在执行 handle 方法时，第一步会将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中。第二步，判断 `deferredImportSelectors` 是否为空，因为 `deferredImportSelectors` 在实例化时，会被赋值一个 ArrayList，所以不为空，会将 holder 放到 deferredImportSelectors 的集合中。
+##### 7.1.1.1 processImports
+
+因为 `AutoConfigurationImportSelector`  继承了 `DeferredImportSelector` ，而 `DeferredImportSelector` 实现了 `ImportSelector`,  所以，会走到第一个 if 的分支。
+
+该分支分 3 步执行。
+
+第一步，加载 `AutoConfigurationImportSelector`。
+
+第二步，实例化 `AutoConfigurationImportSelector`。
+
+第三部，执行 handle 方法。
+
+下面重点分析第三步。handle 方法分以下2步执行。
+
+1. 将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中
+2. 判断 `deferredImportSelectors` 是否为空，因为 `deferredImportSelectors` 在实例化时，会被赋值一个 ArrayList，所以不为空，会将 holder 放到 deferredImportSelectors 的集合中。
 
 ```java
 if (selector instanceof DeferredImportSelector) {
@@ -2101,7 +2115,9 @@ private class DeferredImportSelectorHandler {
 
 
 
-然后，在解析完所有的配置类后，执行 `this.deferredImportSelectorHandler.process()` 方法，统一处理实现 `DeferredImportSelector` 的类。
+##### 7.1.1.2 process
+
+在解析完所有的配置类后，执行 `this.deferredImportSelectorHandler.process()` 方法，统一处理实现 `DeferredImportSelector` 接口的类。
 
 ```java
 public void parse(Set<BeanDefinitionHolder> configCandidates) {
@@ -2143,8 +2159,11 @@ public void process() {
     try {
         if (deferredImports != null) {
             DeferredImportSelectorGroupingHandler handler = new DeferredImportSelectorGroupingHandler();
+            // 排序
             deferredImports.sort(DEFERRED_IMPORT_COMPARATOR);
+            // 遍历并注册
             deferredImports.forEach(handler::register);
+            // 处理 groupings
             handler.processGroupImports();
         }
     }
@@ -2156,82 +2175,226 @@ public void process() {
 
 
 
-- 对所有的 `DeferredImportSelectorHolder` 进行排序
+1. 对所有的 `DeferredImportSelectorHolder` 进行排序
 
-  最终执行的排序方法如下：
+   最终执行的排序方法如下：
 
-  ```java
-  private int doCompare(@Nullable Object o1, @Nullable Object o2, @Nullable OrderSourceProvider sourceProvider) {
-      boolean p1 = (o1 instanceof PriorityOrdered);
-      boolean p2 = (o2 instanceof PriorityOrdered);
-      if (p1 && !p2) {
-          return -1;
-      }
-      else if (p2 && !p1) {
-          return 1;
-      }
-  
-      int i1 = getOrder(o1, sourceProvider);
-      int i2 = getOrder(o2, sourceProvider);
-      return Integer.compare(i1, i2);
-  }
-  ```
+   ```java
+   private int doCompare(@Nullable Object o1, @Nullable Object o2, @Nullable OrderSourceProvider sourceProvider) {
+       boolean p1 = (o1 instanceof PriorityOrdered);
+       boolean p2 = (o2 instanceof PriorityOrdered);
+       if (p1 && !p2) {
+           return -1;
+       }
+       else if (p2 && !p1) {
+           return 1;
+       }
+   
+       int i1 = getOrder(o1, sourceProvider);
+       int i2 = getOrder(o2, sourceProvider);
+       return Integer.compare(i1, i2);
+   }
+   ```
 
-  可以看到，若其中一个实现了 `PriorityOrdered` 接口，另一个没有实现，则实现了 `PriorityOrdered`  接口的优先级大；
+   可以看到，若其中一个实现了 `PriorityOrdered` 接口，另一个没有实现，则实现了 `PriorityOrdered`  接口的优先级大；若都实现了 `PriorityOrdered` 接口，则根据其 getOrder() 方法，getOrder 得到的值越大，优先级越低。
 
-  若都实现了 `PriorityOrdered` 接口，则根据其 getOrder() 方法，getOrder 得到的值越大，优先级越低。
+2. 遍历 deferredImports，并执行 `org.springframework.context.annotation.ConfigurationClassParser.DeferredImportSelectorGroupingHandler#register` 方法。
 
-- 遍历 deferredImports，并执行 `org.springframework.context.annotation.ConfigurationClassParser.DeferredImportSelectorGroupingHandler#register` 方法。
+   ```java
+   public void register(DeferredImportSelectorHolder deferredImport) {
+       Class<? extends Group> group = deferredImport.getImportSelector()
+           .getImportGroup();
+       DeferredImportSelectorGrouping grouping = this.groupings.computeIfAbsent(
+           (group != null ? group : deferredImport),
+           key -> new DeferredImportSelectorGrouping(createGroup(group)));
+       grouping.add(deferredImport);
+       this.configurationClasses.put(deferredImport.getConfigurationClass().getMetadata(),
+                                     deferredImport.getConfigurationClass());
+   }
+   ```
 
-  ```java
-  public void register(DeferredImportSelectorHolder deferredImport) {
-      Class<? extends Group> group = deferredImport.getImportSelector()
-          .getImportGroup();
-      DeferredImportSelectorGrouping grouping = this.groupings.computeIfAbsent(
-          (group != null ? group : deferredImport),
-          key -> new DeferredImportSelectorGrouping(createGroup(group)));
-      grouping.add(deferredImport);
-      this.configurationClasses.put(deferredImport.getConfigurationClass().getMetadata(),
-                                    deferredImport.getConfigurationClass());
-  }
-  ```
+   
 
-  首先获取其 ImportGroup 的类对象，并将其实例化，使用 `DeferredImportSelectorGrouping`进行包装，然后放到 groupings 中。
+   register 方法中首先获取其 ImportGroup 的类对象，并将其实例化(createGroup(group))，使用 `DeferredImportSelectorGrouping`进行包装，然后放到 groupings 中。
 
-- 遍历第二步的 groupings。
+   
 
-  ```java
-  public void processGroupImports() {
-      for (DeferredImportSelectorGrouping grouping : this.groupings.values()) {
-          grouping.getImports().forEach(entry -> {
-              ConfigurationClass configurationClass = this.configurationClasses.get(
-                  entry.getMetadata());
-              try {
-                  processImports(configurationClass, asSourceClass(configurationClass),
-                                 asSourceClasses(entry.getImportClassName()), false);
+3. 对上一步得到的 groupings 遍历并处理。
+
+   ```java
+   public void processGroupImports() {
+       for (DeferredImportSelectorGrouping grouping : this.groupings.values()) {
+           grouping.getImports().forEach(entry -> {
+               ConfigurationClass configurationClass = this.configurationClasses.get(
+                   entry.getMetadata());
+               try {
+                   processImports(configurationClass, asSourceClass(configurationClass),
+                                  asSourceClasses(entry.getImportClassName()), false);
+               }
+               catch (BeanDefinitionStoreException ex) {
+                   throw ex;
+               }
+               catch (Throwable ex) {
+                   throw new BeanDefinitionStoreException(
+                       "Failed to process import candidates for configuration class [" +
+                       configurationClass.getMetadata().getClassName() + "]", ex);
+               }
+           });
+       }
+   }
+   ```
+
+   - 首先执行 `grouping.getImports()` 方法，得到 `Group.Entry` 的迭代器。
+
+     getImports()如下：
+
+     ```java
+     public Iterable<Group.Entry> getImports() {
+         for (DeferredImportSelectorHolder deferredImport : this.deferredImports) {
+             this.group.process(deferredImport.getConfigurationClass().getMetadata(),
+                                deferredImport.getImportSelector());
+         }
+         return this.group.selectImports();
+     }
+     ```
+
+     
+
+     Entry 类构造如下， 包含了 metadata 和 importClassName。
+
+     ```java
+     class Entry {
+     
+         private final AnnotationMetadata metadata;
+     
+         private final String importClassName;
+     
+         public Entry(AnnotationMetadata metadata, String importClassName) {
+             this.metadata = metadata;
+             this.importClassName = importClassName;
+         }
+     	...
+     }
+     ```
+
+     下面我们看是如何得到这个  `Group.Entry` 的迭代器的。
+
+     - 遍历 deferredImports，执行 group 的 process 方法。
+
+       ```java
+       public void process(AnnotationMetadata annotationMetadata,
+                           DeferredImportSelector deferredImportSelector) {
+           ...
+           AutoConfigurationEntry autoConfigurationEntry = ((AutoConfigurationImportSelector) deferredImportSelector)
+               .getAutoConfigurationEntry(getAutoConfigurationMetadata(),
+                                          annotationMetadata);
+           this.autoConfigurationEntries.add(autoConfigurationEntry);
+           for (String importClassName : autoConfigurationEntry.getConfigurations()) {
+               this.entries.putIfAbsent(importClassName, annotationMetadata);
+           }
+       }		
+       ```
+
+       1. 执行 getAutoConfigurationMetadata()
+
+          通过加载 META-INF/spring-autoconfigure-metadata.properties 路径下的文件，得到 Properties 对象，并将其封装到 `PropertiesAutoConfigurationMetadata` 中。
+
+       2. 执行 getAutoConfigurationEntry(*)
+
+          ```java
+          protected AutoConfigurationEntry getAutoConfigurationEntry(
+              AutoConfigurationMetadata autoConfigurationMetadata,
+              AnnotationMetadata annotationMetadata) {
+              if (!isEnabled(annotationMetadata)) {
+                  return EMPTY_ENTRY;
               }
-              catch (BeanDefinitionStoreException ex) {
-                  throw ex;
-              }
-              catch (Throwable ex) {
-                  throw new BeanDefinitionStoreException(
-                      "Failed to process import candidates for configuration class [" +
-                      configurationClass.getMetadata().getClassName() + "]", ex);
-              }
-          });
-      }
-  }
-  ```
+              AnnotationAttributes attributes = getAttributes(annotationMetadata);
+              //得到 META-INF/spring.factories 定义的所有配置类
+              List<String> configurations = getCandidateConfigurations(annotationMetadata,
+                                                                       attributes);
+              //去重
+              configurations = removeDuplicates(configurations);
+              //根据定义的 exclude & excludeName 排除配置类
+              Set<String> exclusions = getExclusions(annotationMetadata, attributes);
+              checkExcludedClasses(configurations, exclusions);
+              configurations.removeAll(exclusions);
+              //根据 autoConfigurationMetadata 对 configurations 进行过滤
+              configurations = filter(configurations, autoConfigurationMetadata);
+              //处理自动装配事件监听器
+              fireAutoConfigurationImportEvents(configurations, exclusions);
+              return new AutoConfigurationEntry(configurations, exclusions);
+          }
+          ```
 
-  - 首先执行 `grouping.getImports()` 方法。
+          getAutoConfigurationEntry(*) 方法解析如下：
 
-    加载 META-INF/spring-autoconfigure-metadata.properties 的文件，得到所有的properties。 加载 properties 中定义的配置类，根据 `@EnableAutoConfiguration` 配置的 exclude & excludeName 去排除指定的配置。如果我们应用中需要将某些自动化的配置排除，则可以在此进行配置。
+          - 通过加载 META-INF/spring.factories 路径下的文件，得到所有的配置类。
 
-    执行 `group.selectImports()` 方法。再次进行排除，并根据优先级进行排序。
+          - 对配置类去重。
 
-  - 执行 processImports(configurationClass, asSourceClass(configurationClass), asSourceClasses(entry.getImportClassName()), false) 方法。即对每个配置类执行 processImport 方法，及导入配置类需要 import 的类。
+          - 根据 `@EnableAutoConfiguration` 配置的 exclude & excludeName 去排除指定的配置。如果我们应用中需要将某些自动化的配置排除，则可以在此进行配置。
 
-通过上面分析可以知道，`@EnableAutoConfiguration`  的 `@Import(AutoConfigurationImportSelector.class)` 其主要目的，就是通过 `AutoConfigurationImportSelector` 将 Spring Boot 项目下定义的配置类全部加载进来，并处理配置类上的Import 的类。
+          - 根据 autoConfigurationMetadata 对配置类进行过滤。
+
+            通过配置类的 className + "." + "ConditionalOnClass" 为 key , 从 autoConfigurationMetadata 的 properties 中获取对应的 value，即需要加载的类，使用类加载器加载，若加载成功，则说明对应的 ConditionalOnClass 存在，否则则将该配置类过滤掉。最终将得到的 `AutoConfigurationEntry` 对象添加到 autoConfigurationEntries 中。
+
+          - 处理自动装配事件监听器
+
+            通过加载所有可用的 `AutoConfigurationImportListener` 的实现类，并调用其onAutoConfigurationImportEvent(*) 方法。
+
+            ```java
+            private void fireAutoConfigurationImportEvents(List<String> configurations,
+                                                           Set<String> exclusions) {
+                // 加载监听器
+                List<AutoConfigurationImportListener> listeners = getAutoConfigurationImportListeners();
+                if (!listeners.isEmpty()) {
+                    // 封装时间
+                    AutoConfigurationImportEvent event = new AutoConfigurationImportEvent(this,
+                                                                                          configurations, exclusions);
+                    for (AutoConfigurationImportListener listener : listeners) {
+                        // 若存在 awareMethod，则先执行 awareMethod
+                        invokeAwareMethods(listener);
+                        // 处理事件
+                        listener.onAutoConfigurationImportEvent(event);
+                    }
+                }
+            }
+            ```
+
+          
+
+     - 执行 `group.selectImports()` 方法。
+
+       得到 autoConfigurationEntries 中的所有需要排除的配置类和所有在上一步处理过的配置类，再次进行排除并排序。这里再次进行排除排序操作是因为 autoConfigurationEntries 可能存在多个 autoConfigurationEntry，上一步只是对单个 autoConfigurationEntry 内部配置进行的过滤操作，各个 autoConfigurationEntry 之间可能存在重复的配置类，所以，这里需要再次进行排除和排序的操作。
+
+       ```java
+       public Iterable<Entry> selectImports() {
+           if (this.autoConfigurationEntries.isEmpty()) {
+               return Collections.emptyList();
+           }
+           Set<String> allExclusions = this.autoConfigurationEntries.stream()
+               .map(AutoConfigurationEntry::getExclusions)
+               .flatMap(Collection::stream).collect(Collectors.toSet());
+           Set<String> processedConfigurations = this.autoConfigurationEntries.stream()
+               .map(AutoConfigurationEntry::getConfigurations)
+               .flatMap(Collection::stream)
+               .collect(Collectors.toCollection(LinkedHashSet::new));
+           processedConfigurations.removeAll(allExclusions);
+       
+           return sortAutoConfigurations(processedConfigurations,
+                                         getAutoConfigurationMetadata())
+               .stream()
+               .map((importClassName) -> new Entry(
+                   this.entries.get(importClassName), importClassName))
+               .collect(Collectors.toList());
+       }
+       ```
+
+       
+
+   - 执行 processImports(configurationClass, asSourceClass(configurationClass), asSourceClasses(entry.getImportClassName()), false) 方法。即对每个配置类执行 processImport 方法，及导入配置类需要 import 的类。
+
+   通过上面分析可以知道，`@EnableAutoConfiguration`  的 `@Import(AutoConfigurationImportSelector.class)` 其主要目的，就是通过 `AutoConfigurationImportSelector` 将 Spring Boot 项目下定义的配置类全部加载进来，并处理配置类上的Import 的类。
 
 
 
