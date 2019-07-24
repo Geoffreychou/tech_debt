@@ -1,0 +1,2 @@
+#org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+#xin.zero2one.config.HelloWorldConfiguration

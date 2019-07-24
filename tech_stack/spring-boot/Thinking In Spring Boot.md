@@ -2067,7 +2067,7 @@ else {
 
 下面重点分析第三步。handle 方法分以下2步执行。
 
-1. 将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中
+1. 将 configClass & importSelector 包装进 `DeferredImportSelectorHolder` 对象中。
 2. 判断 `deferredImportSelectors` 是否为空，因为 `deferredImportSelectors` 在实例化时，会被赋值一个 ArrayList，所以不为空，会将 holder 放到 deferredImportSelectors 的集合中。
 
 ```java
@@ -2260,7 +2260,7 @@ public void process() {
 
      
 
-     Entry 类构造如下， 包含了 metadata 和 importClassName。
+     `Entry` 类构造如下， 包含了 metadata 和 importClassName。
 
      ```java
      class Entry {
@@ -2558,13 +2558,257 @@ private void loadBeanDefinitionsForConfigurationClass(
 
 
 
-
-
-
-
 ### 7.2 自定义 Spring Boot 自动装配
 
+在上一节，我们分析了 Spring Boot 自动装配的原理，接下来，我们通过简单的例子来操作一遍。
 
+1. 新建一个工程，用作 Spring Boot 自动装配的模块。
+
+   pom 文件如下：
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   
+   <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+       <parent>
+           <artifactId>spring-boot-study-parent</artifactId>
+           <groupId>xin.zero2one</groupId>
+           <version>0.0.1-SNAPSHOT</version>
+       </parent>
+       <modelVersion>4.0.0</modelVersion>
+   
+       <artifactId>spring-boot-auto-configuration-child</artifactId>
+   
+       <name>spring-boot-auto-configuration-child</name>
+   
+       <properties>
+           <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+           <maven.compiler.source>1.7</maven.compiler.source>
+           <maven.compiler.target>1.7</maven.compiler.target>
+       </properties>
+   
+       <dependencies>
+           <dependency>
+               <groupId>org.springframework.boot</groupId>
+               <artifactId>spring-boot-starter</artifactId>
+               <optional>true</optional>
+           </dependency>
+           <dependency>
+               <groupId>org.projectlombok</groupId>
+               <artifactId>lombok</artifactId>
+           </dependency>
+           <dependency>
+               <groupId>com.google.guava</groupId>
+               <artifactId>guava</artifactId>
+               <version>27.1-jre</version>
+               <optional>true</optional>
+           </dependency>
+       </dependencies>
+   
+   </project>
+   ```
+
+   
+
+2. 新建一个 HelloWorldService 接口。
+
+   ```java
+   package xin.zero2one.service;
+   
+   public interface HelloWorldService {
+   
+       void sayHello(String msg);
+   
+   }
+   ```
+
+   
+
+3. 实现 HelloWorldService 接口。
+
+   ```java
+   package xin.zero2one.service;
+   
+   import lombok.extern.slf4j.Slf4j;
+   
+   @Slf4j
+   public class CommonHelloWorldService implements HelloWorldService {
+   
+       @Override
+       public void sayHello(String msg) {
+           log.info("{} say hello msg: {}", this.getClass().getName(), msg);
+       }
+   }
+   ```
+
+   
+
+4. 定义配置类，配置 HelloWorldService 类。
+
+   ```java
+   package xin.zero2one.config;
+   
+   import org.springframework.context.annotation.Bean;
+   import org.springframework.context.annotation.Configuration;
+   import xin.zero2one.service.CommonHelloWorldService;
+   import xin.zero2one.service.HelloWorldService;
+   
+   @Configuration
+   public class HelloWorldConfiguration {
+   
+       @Bean
+       public HelloWorldService commonHelloWorldService() {
+           return new CommonHelloWorldService();
+       }
+   
+   }
+   ```
+
+   
+
+5. 在 resources/META-INF 路径下新建2个文件
+
+   - 新建 spring.factories 文件，key为 org.springframework.boot.autoconfigure.EnableAutoConfiguration， value 为配置类的全路径。根据上一节的分析，spring boot 自动配置时，会读取 spring.factories 文件并处理其中的配置类。
+
+     ```properties
+     org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+     xin.zero2one.config.HelloWorldConfiguration
+     ```
+
+     
+
+   - 新建 spring-autoconfigure-metadata.properties 文件，key 为配置类的全路径 + ".ConditionalOnClass"，value 为 com.google.thirdparty.publicsuffix.PublicSuffixPatterns。该配置的含义是只有当我们的应用中能够成功加载 com.google.thirdparty.publicsuffix.PublicSuffixPatterns 这个类时，我们定义的配置类才能被筛选过来。
+
+6. 将我们创建的项目进行编译打包。
+
+7. 新建一个新的项目，并引入在上一步编译打包好的依赖。
+
+   pom 文件如下，可以看到 pom 引入了 guava 的依赖，该依赖中就包含我们在第 5 步定义的需要加载的 com.google.thirdparty.publicsuffix.PublicSuffixPatterns 类
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   
+   <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+       <parent>
+           <artifactId>spring-boot-study-parent</artifactId>
+           <groupId>xin.zero2one</groupId>
+           <version>0.0.1-SNAPSHOT</version>
+       </parent>
+       <modelVersion>4.0.0</modelVersion>
+   
+       <artifactId>spring-boot-auto-configuration</artifactId>
+   
+       <name>spring-boot-auto-configuration</name>
+   
+       <properties>
+           <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+           <maven.compiler.source>1.8</maven.compiler.source>
+           <maven.compiler.target>1.8</maven.compiler.target>
+       </properties>
+   
+       <dependencies>
+           <dependency>
+               <groupId>org.springframework.boot</groupId>
+               <artifactId>spring-boot-starter-tomcat</artifactId>
+           </dependency>
+   
+           <dependency>
+               <groupId>org.springframework.boot</groupId>
+               <artifactId>spring-boot-starter-test</artifactId>
+           </dependency>
+   
+           <dependency>
+               <groupId>com.google.guava</groupId>
+               <artifactId>guava</artifactId>
+               <version>27.1-jre</version>
+           </dependency>
+   
+           <dependency>
+               <groupId>joda-time</groupId>
+               <artifactId>joda-time</artifactId>
+               <version>2.9.6</version>
+           </dependency>
+           <!-- 自定义的自动装配模块 -->
+           <dependency>
+               <groupId>xin.zero2one</groupId>
+               <artifactId>spring-boot-auto-configuration-child</artifactId>
+               <version>0.0.1-SNAPSHOT</version>
+           </dependency>
+       </dependencies>
+   
+       <build>
+           <plugins>
+               <plugin>
+                   <groupId>org.springframework.boot</groupId>
+                   <artifactId>spring-boot-maven-plugin</artifactId>
+                   <version>2.0.2.RELEASE</version>
+               </plugin>
+           </plugins>
+       </build>
+   </project>
+   
+   ```
+
+   
+
+8. 创建启动类，添加 `@EnableAutoConfiguration` ，在启动类中，我们尝试通过 beanFactory.getBean()的方式获取 HelloWorldService 的 Bean， 如果能够成功获取，即说明我们的自动装配是成功的。
+
+   ```java
+   package xin.zero2one;
+   
+   import org.springframework.boot.SpringApplication;
+   import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+   import org.springframework.context.ConfigurableApplicationContext;
+   import xin.zero2one.service.HelloWorldService;
+   
+   @EnableAutoConfiguration
+   public class SpringBootAutoConfiguration {
+   
+       public static void main(String[] args) {
+           ConfigurableApplicationContext run = SpringApplication.run(SpringBootAutoConfiguration.class, args);
+   
+           HelloWorldService helloWorldService = run.getBean(HelloWorldService.class);
+           helloWorldService.sayHello("hi!");
+       }
+   
+   }
+   ```
+
+   
+
+9. 启动后，我们查看启动日志，可以看到， HelloWorldService 确实被加载进来了。
+
+   > INFO 30068 --- [           main] x.z.service.CommonHelloWorldService      : xin.zero2one.service.CommonHelloWorldService say hello msg: hi!
+
+   
+
+10. 然后，我们将 guava 依赖注释掉，即我们在自动装配的过程中将我们定义的配置类过滤掉，那么我们配置的 HelloWorldService  也不会被注册。
+
+    > Exception in thread "main" org.springframework.beans.factory.NoSuchBeanDefinitionException: No qualifying bean of type 'xin.zero2one.service.HelloWorldService' available
+    > 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBean(DefaultListableBeanFactory.java:343)
+    > 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBean(DefaultListableBeanFactory.java:335)
+    > 	at org.springframework.context.support.AbstractApplicationContext.getBean(AbstractApplicationContext.java:1123)
+    > 	at xin.zero2one.SpringBootAutoConfiguration.main(SpringBootAutoConfiguration.java:19)
+
+    通过日志可以看到，无法找到对应的 Bean。
+
+    
+
+    同样，我们重新添加 guava 的依赖，但是将  spring.factories 配置的内容清空，重新编译 spring-boot-auto-configuration-child 模块。那么，在自动装配的时候，就无法获得我们定义的配置类，同样，我们配置的 HelloWorldService  也不会被注册。可以看到，是相同的错误。
+
+    > Exception in thread "main" org.springframework.beans.factory.NoSuchBeanDefinitionException: No qualifying bean of type 'xin.zero2one.service.HelloWorldService' available
+    > 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBean(DefaultListableBeanFactory.java:343)
+    > 	at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBean(DefaultListableBeanFactory.java:335)
+    > 	at org.springframework.context.support.AbstractApplicationContext.getBean(AbstractApplicationContext.java:1123)
+    > 	at xin.zero2one.SpringBootAutoConfiguration.main(SpringBootAutoConfiguration.java:19)
+
+    
+
+11. 至此，我们便通过简单的 demo , 演示了 Spring Boot 的自动装配。
+
+    
 
 
 
