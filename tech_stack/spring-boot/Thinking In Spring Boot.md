@@ -2825,7 +2825,39 @@ private void loadBeanDefinitionsForConfigurationClass(
 
 
 
+## 8. SpringApplication 初始化阶段
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## 9. SpringApplication 运行阶段
+
+
+
+
+
+
+
+## 10. SpringApplication 结束阶段
+
+
+
+
+
+
+
+## 11. Spring Boot 退出
 
 
 
