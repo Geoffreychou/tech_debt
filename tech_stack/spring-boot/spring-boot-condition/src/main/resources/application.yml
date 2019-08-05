@@ -1,0 +1,6 @@
+spring:
+  profiles:
+    active: common, dev, test, prod
+  config:
+    name: zero2one-config
+

@@ -64,8 +64,8 @@ public class SpringBootWebContainer {
 //        Object conditionService = context.getBean("conditionService");
 //        log.info("conditionService is : {}", conditionService);
 
-//        IProfileService profileService = context.getBean(IProfileService.class);
-//        profileService.sayHi("hello, world!");
+        IProfileService profileService = context.getBean(IProfileService.class);
+        profileService.sayHi("hello, world!");
 
 
 //        testBean();

@@ -1,0 +1,2 @@
+org.springframework.boot.SpringApplicationRunListener=\
+xin.zero2one.listeners.SpringBootAppRunListener

@@ -2063,7 +2063,7 @@ else {
 
 第二步，实例化 `AutoConfigurationImportSelector`。
 
-第三部，执行 handle 方法。
+第三步，执行 handle 方法。
 
 下面重点分析第三步。handle 方法分以下2步执行。
 
@@ -2679,6 +2679,13 @@ private void loadBeanDefinitionsForConfigurationClass(
      
 
    - 新建 spring-autoconfigure-metadata.properties 文件，key 为配置类的全路径 + ".ConditionalOnClass"，value 为 com.google.thirdparty.publicsuffix.PublicSuffixPatterns。该配置的含义是只有当我们的应用中能够成功加载 com.google.thirdparty.publicsuffix.PublicSuffixPatterns 这个类时，我们定义的配置类才能被筛选过来。
+
+     ```properties
+     xin.zero2one.config.HelloWorldConfiguration.ConditionalOnClass=\
+     com.google.thirdparty.publicsuffix.PublicSuffixPatterns
+     ```
+
+     
 
 6. 将我们创建的项目进行编译打包。
 
