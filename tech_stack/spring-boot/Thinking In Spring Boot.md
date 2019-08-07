@@ -2827,13 +2827,442 @@ private void loadBeanDefinitionsForConfigurationClass(
 
 ## 8. SpringApplication 初始化阶段
 
+SpringApplication 生命周期主要分为 3 个阶段，即初始化、运行、结束这 3 个阶段。
+
+在上一章，我们分析了 SpringBoot 的自动装配。Spring Boot 自动装配是在 SpringApplication 运行阶段发生。
+
+本章，我们重点分析 SpringApplication 的初始化阶段，即 SpringApplication 对象的实例化。代码如下。
+
+```java
+public SpringApplication(ResourceLoader resourceLoader, Class<?>... primarySources) {
+    this.resourceLoader = resourceLoader;
+    Assert.notNull(primarySources, "PrimarySources must not be null");
+    this.primarySources = new LinkedHashSet<>(Arrays.asList(primarySources));
+    this.webApplicationType = WebApplicationType.deduceFromClasspath();
+    setInitializers((Collection) getSpringFactoriesInstances(
+        ApplicationContextInitializer.class));
+    setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class));
+    this.mainApplicationClass = deduceMainApplicationClass();
+}
+```
+
+
+
+可以看到，其主要执行步骤分为以下6步：
+
+1. 初始化 resourceLoader
+2. 初始化 primarySources
+3. 初始化webApplicationType
+4. 设置 ApplicationContextInitializer
+5. 设置 ApplicationListener
+6. 初始化 mainApplicationClass
+
+
+
+### resourceLoader
+
+resourceLoader 是从调用方传过来的，我们看一下调用方，可以看到，默认的 resourceLoader 为空。
+
+```java
+public SpringApplication(Class<?>... primarySources) {
+    this(null, primarySources);
+}
+```
+
+
+
+### primarySources
+
+primarySources 是一个 set 集合，集合中保存的是我们在 main 方法传递的主配置类。
+
+
+
+### webApplicationType
+
+#### 定义
+
+webApplicationType 即当前web应用的类型，根据其定义，分为 3 种，分别为 NONE，SERVLET， REACTIVE。
+
+1. NONE: 当前应用不能作为 web 应用启动，且不能启动一个内嵌的 web 服务。
+2. SERVLET: 当前应用是基于 servlet 的 web 应用，且会启动一个内嵌的 web 服务。
+3. REACTIVE: 当前应用是一个 reactive web 应用，且会启动一个内嵌的 reactive web 服务。
+
+```java
+	/**
+	 * The application should not run as a web application and should not start an
+	 * embedded web server.
+	 */
+	NONE,
+
+	/**
+	 * The application should run as a servlet-based web application and should start an
+	 * embedded servlet web server.
+	 */
+	SERVLET,
+
+	/**
+	 * The application should run as a reactive web application and should start an
+	 * embedded reactive web server.
+	 */
+	REACTIVE;
+```
+
+
+
+#### 类型推断
+
+了解了类型的定义，接下来我们分析一下，Spring Boot 是如何推断出其 web类型的。下面是其推断类型的源码。
+
+```java
+private static final String[] SERVLET_INDICATOR_CLASSES = { "javax.servlet.Servlet",
+                                                           "org.springframework.web.context.ConfigurableWebApplicationContext" };
+
+private static final String WEBMVC_INDICATOR_CLASS = "org.springframework."
+    + "web.servlet.DispatcherServlet";
+
+private static final String WEBFLUX_INDICATOR_CLASS = "org."
+    + "springframework.web.reactive.DispatcherHandler";
+
+private static final String JERSEY_INDICATOR_CLASS = "org.glassfish.jersey.servlet.ServletContainer";
+
+private static final String SERVLET_APPLICATION_CONTEXT_CLASS = "org.springframework.web.context.WebApplicationContext";
+
+private static final String REACTIVE_APPLICATION_CONTEXT_CLASS = "org.springframework.boot.web.reactive.context.ReactiveWebApplicationContext";
+
+static WebApplicationType deduceFromClasspath() {
+    if (ClassUtils.isPresent(WEBFLUX_INDICATOR_CLASS, null)
+        && !ClassUtils.isPresent(WEBMVC_INDICATOR_CLASS, null)
+        && !ClassUtils.isPresent(JERSEY_INDICATOR_CLASS, null)) {
+        return WebApplicationType.REACTIVE;
+    }
+    for (String className : SERVLET_INDICATOR_CLASSES) {
+        if (!ClassUtils.isPresent(className, null)) {
+            return WebApplicationType.NONE;
+        }
+    }
+    return WebApplicationType.SERVLET;
+}
+```
+
+
+
+可以看到，源码里有一个频繁用到的方法 `org.springframework.util.ClassUtils#isPresent` 。我们可以看到，当对应的类加载成功后，返回 true，加载失败抛异常后返回 false。
+
+```java
+public static boolean isPresent(String className, @Nullable ClassLoader classLoader) {
+    try {
+        // 封装了 JDK 的 forName 方法，加载对应的类
+        forName(className, classLoader);
+        return true;
+    }
+    catch (IllegalAccessError err) {
+        throw new IllegalStateException("Readability mismatch in inheritance hierarchy of class [" +
+                                        className + "]: " + err.getMessage(), err);
+    }
+    catch (Throwable ex) {
+        // Typically ClassNotFoundException or NoClassDefFoundError...
+        return false;
+    }
+}
+```
+
+
+
+##### REACTIVE
+
+下面，我们分析一下，什么情况下会返回 REACTIVE 类型。
+
+可以看到，方法里面尝试去加载 `org.springframework.web.reactive.DispatcherHandler`  & `org.springframework.web.servlet.DispatcherServlet` & `org.glassfish.jersey.servlet.ServletContainer` 这三个类。当 DispatcherHandler 加载成功并且 DispatcherServlet 和 ServletContainer 加载失败时，则判定其类型为 REACTIVE。
+
+DispatcherHandler 是 spring-webflux 包中 dispatcher 类，DispatcherServlet  是 spring-webmvc 中定义的 dispatcher 类， ServletContainer 是 Jersey 中定义的 servlet 容器类。综上，可以了解到，当项目中引入了 webflux 依赖，但没有引入 webmvc 和 jersey 的依赖时，则认为其类型为 REACTIVE。
+
+
+
+##### NONE
+
+当判断不满足 REACTIVE 的条件后，会判断是否满足 NONE 的条件。NONE 的判断是当 `javax.servlet.Servlet` & `org.springframework.web.context.ConfigurableWebApplicationContext` 加载失败时，则其类型为 NONE。
+
+Servlet 是 servlet-api 中的核心接口，也是 java web 服务的核心， ConfigurableWebApplicationContext 是 spring-web 包中的核心接口。当项目中没有引入这 2 个依赖时，则认为其类型为 NONE。
+
+
+
+##### SERVLET
+
+当不满足上面 2 个类型的条件是则为 SERVLET 类型。
 
 
 
 
 
+### ApplicationContextInitializer
+
+设置 ApplicationContextInitializer 方法如下，直接将传入的 initializers 集合赋值到 SpringApplication 的成员变量 initializers 中。
+
+```java
+public void setInitializers(
+    Collection<? extends ApplicationContextInitializer<?>> initializers) {
+    this.initializers = new ArrayList<>();
+    this.initializers.addAll(initializers);
+}
+```
 
 
+
+获取 initializers集合的方法为  `getSpringFactoriesInstances(ApplicationContextInitializer.class)` ，该方法会加载所有实现 ApplicationContextInitializer 接口的类。
+
+```java
+private <T> Collection<T> getSpringFactoriesInstances(Class<T> type,
+                                                      Class<?>[] parameterTypes, Object... args) {
+    // 获取 classLoader
+    ClassLoader classLoader = getClassLoader();
+    // Use names and ensure unique to protect against duplicates
+    // 获取所有实现该接口的类名
+    Set<String> names = new LinkedHashSet<>(
+        SpringFactoriesLoader.loadFactoryNames(type, classLoader));
+    // 加载类
+    List<T> instances = createSpringFactoriesInstances(type, parameterTypes,
+                                                       classLoader, args, names);
+    // 排序
+    AnnotationAwareOrderComparator.sort(instances);
+    return instances;
+}
+```
+
+
+
+该方法总共分 4 步执行。
+
+1. getClassLoader
+2. loadFactoryNames
+3. createSpringFactoriesInstances
+4. sort
+
+
+
+#### getClassLoader
+
+getClassLoader 方法如下。当 SpringApplication 中 resourceLoader 不为空时，会从 resourceLoader 中获取 ClassLoader。resourceLoad 默认为空的，所以会调用 `ClassUtils.getDefaultClassLoader()` 方法。
+
+```java
+public ClassLoader getClassLoader() {
+    if (this.resourceLoader != null) {
+        return this.resourceLoader.getClassLoader();
+    }
+    return ClassUtils.getDefaultClassLoader();
+}
+```
+
+
+
+getDefaultClassLoader 方法首先会尝试从当前线程中获取 classLoader，获取失败后，会尝试获取当前 class 的 classLoader，如果依然拿不到，则尝试获取系统类加载器。在本次调用中，会拿到当前线程的 classLoader
+
+```java
+public static ClassLoader getDefaultClassLoader() {
+    ClassLoader cl = null;
+    try {
+        cl = Thread.currentThread().getContextClassLoader();
+    }
+    catch (Throwable ex) {
+        // Cannot access thread context ClassLoader - falling back...
+    }
+    if (cl == null) {
+        // No thread context class loader -> use class loader of this class.
+        cl = ClassUtils.class.getClassLoader();
+        if (cl == null) {
+            // getClassLoader() returning null indicates the bootstrap ClassLoader
+            try {
+                cl = ClassLoader.getSystemClassLoader();
+            }
+            catch (Throwable ex) {
+                // Cannot access system ClassLoader - oh well, maybe the caller can live with null...
+            }
+        }
+    }
+    return cl;
+}
+```
+
+
+
+#### loadFactoryNames
+
+loadFactoryNames 方法会加载实现指定接口的工厂类名。
+
+首先，会执行 loadSpringFactories 方法，该方法会加载所有的 META-INF/spring.factories 文件，其实际为 properties 文件，最终会加载到 MultiValueMap<String, String> 中， key  为工厂接口名称， value 为其对应的实现类名，用逗号分隔。
+
+然后，通过工厂接口的名称获取对应的 value。
+
+
+
+```java
+public static List<String> loadFactoryNames(Class<?> factoryClass, @Nullable ClassLoader classLoader) {
+    String factoryClassName = factoryClass.getName();
+    return loadSpringFactories(classLoader).getOrDefault(factoryClassName, Collections.emptyList());
+}
+
+private static Map<String, List<String>> loadSpringFactories(@Nullable ClassLoader classLoader) {
+    MultiValueMap<String, String> result = cache.get(classLoader);
+    if (result != null) {
+        return result;
+    }
+
+    try {
+        Enumeration<URL> urls = (classLoader != null ?
+                                 classLoader.getResources(FACTORIES_RESOURCE_LOCATION) :
+                                 ClassLoader.getSystemResources(FACTORIES_RESOURCE_LOCATION));
+        result = new LinkedMultiValueMap<>();
+        while (urls.hasMoreElements()) {
+            URL url = urls.nextElement();
+            UrlResource resource = new UrlResource(url);
+            Properties properties = PropertiesLoaderUtils.loadProperties(resource);
+            for (Map.Entry<?, ?> entry : properties.entrySet()) {
+                String factoryClassName = ((String) entry.getKey()).trim();
+                for (String factoryName : StringUtils.commaDelimitedListToStringArray((String) entry.getValue())) {
+                    result.add(factoryClassName, factoryName.trim());
+                }
+            }
+        }
+        cache.put(classLoader, result);
+        return result;
+    }
+    catch (IOException ex) {
+        throw new IllegalArgumentException("Unable to load factories from location [" +
+                                           FACTORIES_RESOURCE_LOCATION + "]", ex);
+    }
+}
+```
+
+
+
+#### createSpringFactoriesInstances
+
+createSpringFactoriesInstances 方法会实例化我们在上一步获取的工厂类。
+
+```java
+private <T> List<T> createSpringFactoriesInstances(Class<T> type,
+                                                   Class<?>[] parameterTypes, ClassLoader classLoader, Object[] args,
+                                                   Set<String> names) {
+    List<T> instances = new ArrayList<>(names.size());
+    for (String name : names) {
+        try {
+            Class<?> instanceClass = ClassUtils.forName(name, classLoader);
+            Assert.isAssignable(type, instanceClass);
+            Constructor<?> constructor = instanceClass
+                .getDeclaredConstructor(parameterTypes);
+            T instance = (T) BeanUtils.instantiateClass(constructor, args);
+            instances.add(instance);
+        }
+        catch (Throwable ex) {
+            throw new IllegalArgumentException(
+                "Cannot instantiate " + type + " : " + name, ex);
+        }
+    }
+    return instances;
+}
+```
+
+
+
+
+
+#### sort
+
+sort 方法即根据根据对应的优先级进行排序，其核心方法如下。
+
+当其中 A 实现了 PriorityOrdered 接口而B没有实现时，A 的优先级高。
+
+当 A B 都实现了 PriorityOrdered 接口时，获取其 order 值，order 值越小，优先级越高。
+
+```java
+private int doCompare(@Nullable Object o1, @Nullable Object o2, @Nullable OrderSourceProvider sourceProvider) {
+    boolean p1 = (o1 instanceof PriorityOrdered);
+    boolean p2 = (o2 instanceof PriorityOrdered);
+    if (p1 && !p2) {
+        return -1;
+    }
+    else if (p2 && !p1) {
+        return 1;
+    }
+
+    int i1 = getOrder(o1, sourceProvider);
+    int i2 = getOrder(o2, sourceProvider);
+    return Integer.compare(i1, i2);
+}
+```
+
+
+
+获取 order 值的方法如下。
+
+1. 尝试从父类中获取到 order 值，若存在，则返回
+2. 如果是一个类对象，从 org.springframework.core.annotation.Order 注解中获取对应的值，如果没有获取到，尝试从 javax.annotation.Priority 注解中获取值
+3. 如果是一个方法（针对在配置类中使用 @Bean 注入对象的情况），获取方法上的 org.springframework.core.annotation.Order 注解，获取其中对应的值
+4. 如果是一个注解元素，获取 org.springframework.core.annotation.Order 注解，得到对应的 value
+5. 其他情况，首先执行第 2 步中的方法，如果未获取到，并且其类型为 DecoratingProxy（装饰器代理类），则获取到其装饰的原始类，再执行 OrderUtils.getOrder 方法，获取对应的 order
+
+```java
+protected Integer findOrder(Object obj) {
+    // Check for regular Ordered interface
+    Integer order = super.findOrder(obj);
+    if (order != null) {
+        return order;
+    }
+
+    // Check for @Order and @Priority on various kinds of elements
+    if (obj instanceof Class) {
+        return OrderUtils.getOrder((Class<?>) obj);
+    }
+    else if (obj instanceof Method) {
+        Order ann = AnnotationUtils.findAnnotation((Method) obj, Order.class);
+        if (ann != null) {
+            return ann.value();
+        }
+    }
+    else if (obj instanceof AnnotatedElement) {
+        Order ann = AnnotationUtils.getAnnotation((AnnotatedElement) obj, Order.class);
+        if (ann != null) {
+            return ann.value();
+        }
+    }
+    else {
+        order = OrderUtils.getOrder(obj.getClass());
+        if (order == null && obj instanceof DecoratingProxy) {
+            order = OrderUtils.getOrder(((DecoratingProxy) obj).getDecoratedClass());
+        }
+    }
+
+    return order;
+}
+```
+
+
+
+### ApplicationListener
+
+设置 ApplicationListener 和 设置 ApplicationContextInitializer 的逻辑是一样的，就不再赘述。
+
+
+
+### mainApplicationClass
+
+初始化 mainApplicationClass 实现方法如下。其主要目的是通过解析调用栈，找到主类，即包含 main 方法的类。
+
+```java
+private Class<?> deduceMainApplicationClass() {
+    try {
+        StackTraceElement[] stackTrace = new RuntimeException().getStackTrace();
+        for (StackTraceElement stackTraceElement : stackTrace) {
+            if ("main".equals(stackTraceElement.getMethodName())) {
+                return Class.forName(stackTraceElement.getClassName());
+            }
+        }
+    }
+    catch (ClassNotFoundException ex) {
+        // Swallow and continue
+    }
+    return null;
+}
+```
 
 
 
