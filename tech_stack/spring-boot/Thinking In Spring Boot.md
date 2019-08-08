@@ -3274,6 +3274,20 @@ private Class<?> deduceMainApplicationClass() {
 
 
 
+SpringApplication 准备阶段
+
+
+
+ApplicationContext 启动阶段
+
+
+
+
+
+ApplicationContext 启动后阶段
+
+
+
 
 
 
