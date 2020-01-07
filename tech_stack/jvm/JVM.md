@@ -10,7 +10,7 @@ Java Virtual Machine  -> OS -> Hardware
 
 ### JVM体系概览
 
-![1553862604543](E:\tech_stack_parent\tech_stack\jvm\imgs\1553862604543.png)
+![1553862604543](imgs\1553862604543.png)
 
 
 
@@ -18,7 +18,7 @@ Java Virtual Machine  -> OS -> Hardware
 
 ClassLoader负责加载class文件，class文件在文件开头有特定的文件标识(CAFEBABE)，并且ClassLoader只负责class文件加载，至于class文件是否可以运行，则由Execution Engine决定。
 
-![1553862847024](E:\tech_stack_parent\tech_stack\jvm\imgs\1553862847024.png)
+![1553862847024](imgs\1553862847024.png)
 
 
 
@@ -28,7 +28,7 @@ ClassLoader双亲委派和沙箱安全机制
 
 用户自定义类加载器（继承 `java.lang.ClassLoader`）-> 系统类加载器 -> 扩展类加载器 -> 启动类加载器
 
-![1553863142705](E:\tech_stack_parent\tech_stack\jvm\imgs\1553863142705.png)
+![1553863142705](imgs\1553863142705.png)
 
 ## Execution Engine
 
@@ -68,11 +68,11 @@ Java栈也叫栈内存，主管java程序的运行，在线程创建时创建，
 >
 > 注：每执行一个方法都会产生一个栈帧，保存到栈顶，自行完后，自动出栈
 
-![1553864094453](E:\tech_stack_parent\tech_stack\jvm\imgs\1553864094453.png)
+![1553864094453](imgs\1553864094453.png)
 
 栈中数据引用关系
 
-![1553953213502](E:\tech_stack_parent\tech_stack\jvm\imgs\1553953213502.png)
+![1553953213502](imgs\1553953213502.png)
 
 
 
@@ -111,7 +111,7 @@ Tenure Generation Space
 
 Permant Space/ Meta Space(JDK 1.8+)
 
-![1553954992348](E:\tech_stack_parent\tech_stack\jvm\imgs\1553954992348.png)
+![1553954992348](imgs\1553954992348.png)
 
 ### 创建对象
 
@@ -150,7 +150,7 @@ Permant Space/ Meta Space(JDK 1.8+)
 
       下图为32位OS下的Mark Word
 
-      ![1553955897626](E:\tech_stack_parent\tech_stack\jvm\imgs\1553955897626.png)
+      ![1553955897626](imgs\1553955897626.png)
 
   - 类型指针
 
@@ -208,7 +208,7 @@ GCRoot
 
 [参考](https://blog.csdn.net/coderlius/article/details/79272773)
 
-![1553957817832](E:\tech_stack_parent\tech_stack\jvm\imgs\1553957817832.png)
+![1553957817832](imgs\1553957817832.png)
 
 #### Serial & Serial Old
 
