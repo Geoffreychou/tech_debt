@@ -10,9 +10,9 @@ import java.util.function.Supplier;
 public class SupplierDemo {
 
     public static void main(String[] args) {
-        Supplier supplier = () -> 1;
-        Object o = supplier.get();
-        System.out.println(o);
+        Supplier<Integer> supplier = () -> 1;
+        Integer r = supplier.get();
+        System.out.println(r);
     }
 
 }
