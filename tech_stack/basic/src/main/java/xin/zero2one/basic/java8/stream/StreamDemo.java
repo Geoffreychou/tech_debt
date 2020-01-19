@@ -118,6 +118,7 @@ public class StreamDemo {
                     ", score=" + score +
                     '}';
         }
+        String s = "{\"id\":2007,\"userName\":\"zhoujundong\",\"codeCommitTimes\":\"9999\",\"testReportTimes\":\"2\",\"userRole\":\"RD\",\"realName\":\"周俊东(Education)\",\"createTime\":\"2019-04-30 10:54:18\",\"crTimes\":\"2\",\"deployTimes\":null,\"commentTimes\":null,\"joinDays\":\"262\",\"projectAccount\":\"36\",\"bugAccount\":\"0\",\"maxAccountBugQa\":\"赵婷婷\",\"maxAccountBugRd\":null,\"looked\":1}";
     }
 
 
