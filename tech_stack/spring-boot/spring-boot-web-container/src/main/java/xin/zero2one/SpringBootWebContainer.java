@@ -1,7 +1,14 @@
 package xin.zero2one;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.BeanDefinitionHolder;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.support.BeanDefinitionReaderUtils;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -26,6 +33,7 @@ import xin.zero2one.bean.AnnoTest;
 import xin.zero2one.bean.ManagedBeanTest;
 import xin.zero2one.bean.ServiceChildTest;
 import xin.zero2one.condition.ConditionOnTest;
+import xin.zero2one.factory.MyFactoryBean;
 import xin.zero2one.profile.IProfileService;
 
 import java.io.IOException;
@@ -64,8 +72,8 @@ public class SpringBootWebContainer {
 //        Object conditionService = context.getBean("conditionService");
 //        log.info("conditionService is : {}", conditionService);
 
-        IProfileService profileService = context.getBean(IProfileService.class);
-        profileService.sayHi("hello, world!");
+//        IProfileService profileService = context.getBean(IProfileService.class);
+//        profileService.sayHi("hello, world!");
 
 
 //        testBean();
@@ -73,8 +81,11 @@ public class SpringBootWebContainer {
 
 //        testAnnotations(context);
 //        testEnableHelloWorldConfiguration(context);
-        testEnableImportSelectorConfiguration(context);
+//        testEnableImportSelectorConfiguration(context);
 //        testEnableImportBeanDefinitionRegistrarConfiguration(context);
+
+
+        testFactoryBean(context);
 
     }
 
@@ -213,6 +224,20 @@ public class SpringBootWebContainer {
     public String condition2 () {
         log.info("condition2 executed ...");
         return "two";
+    }
+
+
+    public static void testFactoryBean(ConfigurableApplicationContext context) {
+        BeanDefinitionBuilder builder = BeanDefinitionBuilder.genericBeanDefinition(MyFactoryBean.class)
+                .setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE)
+                .addPropertyValue("msg", "111");
+
+        BeanDefinitionHolder holder = new BeanDefinitionHolder(builder.getBeanDefinition(), "xin.zero2one.bean.FactoryBeanTest");
+
+        BeanDefinitionReaderUtils.registerBeanDefinition(holder, (DefaultListableBeanFactory)context.getBeanFactory());
+
+        FactoryBeanTest factoryBeanTest = (FactoryBeanTest) context.getBeanFactory().getBean("xin.zero2one.bean.FactoryBeanTest");
+        System.out.println(factoryBeanTest.sayHello());
     }
 
 }
