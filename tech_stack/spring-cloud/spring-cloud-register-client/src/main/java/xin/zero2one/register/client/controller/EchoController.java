@@ -29,4 +29,9 @@ public class EchoController {
         return providerService.hello(msg);
     }
 
+    @GetMapping("/circuit")
+    public String circuitBreaker() {
+        return "success";
+    }
+
 }

@@ -14,3 +14,4 @@ eureka:
 spring:
   application:
     name: register-client
+
