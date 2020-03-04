@@ -68,9 +68,10 @@ feign
 
 ## Circuit Breakers
 
+hystrix 熔断
 
-
-
+- 使用线程池  & future 方式  -- 异步线程池
+- 使用  semaphore 方式  -- 同步阻塞
 
 
 
